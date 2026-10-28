@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Washington State Wildfire Preparedness Dashboard</title>
+
+<!-- Leaflet (map) -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<!-- Chart.js (trends & causes) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #ffffff;
+    --ink: #1e293b;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --accent: #b91c1c;
+    --accent2: #ea580c;
+    --chip: #f1f5f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    background: #f8fafc;
+  }
+  header {
+    background: linear-gradient(135deg, #7f1d1d, #b45309);
+    color: #fff;
+    padding: 18px 24px;
+  }
+  header h1 { margin: 0; font-size: 20px; font-weight: 650; }
+  header p { margin: 4px 0 0; font-size: 13px; opacity: .9; }
+
+  .wrap { padding: 16px 24px 32px; max-width: 1400px; margin: 0 auto; }
+
+  .filters {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+    margin-bottom: 18px;
+  }
+  .filters label { display: block; font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; }
+  .filters select {
+    width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px;
+    font-size: 14px; background: #fff; color: var(--ink);
+  }
+  .filters .reset {
+    align-self: end;
+  }
+  .filters button {
+    width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--chip); color: var(--ink); font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .filters button:hover { background: #e2e8f0; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .kpi .v { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .kpi .l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 14px; }
+  @media (max-width: 1000px) { .grid { grid-template-columns: 1fr; } }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; margin-bottom: 14px; }
+  .card h2 { margin: 0 0 3px; font-size: 15px; }
+  .card .sub { font-size: 12px; color: var(--muted); margin: 0 0 10px; }
+
+  #map { height: 360px; border-radius: 8px; }
+
+  .chart-box { position: relative; height: 150px; }
+  .chart-box.tall { height: 300px; }
+
+  .table-scroll { max-height: 340px; overflow-y: auto; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 9px; border-bottom: 1px solid var(--line); }
+  thead th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+  th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .03em; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.top td { font-weight: 600; }
+  .rank { color: var(--accent); font-weight: 700; }
+
+  .note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .badge { display:inline-block; background: var(--chip); border:1px solid var(--line); border-radius: 999px; padding: 2px 10px; font-size: 11px; color: var(--muted); margin-left: 6px; }
+  details { margin-top: 10px; }
+  summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink); }
+  .insight { background:#fff7ed; border:1px solid #fed7aa; border-radius:8px; padding:10px 12px; font-size:13px; color:#7c2d12; margin-bottom:12px; }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; margin-bottom:10px; }
+  .seg button { border:none; background:#fff; padding:6px 12px; font-size:12px; cursor:pointer; color:var(--muted); }
+  .seg button.active { background:var(--accent); color:#fff; }
+  .loading { padding: 40px; text-align:center; color: var(--muted); }
+
+  .disclaimer { background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:10px 12px; font-size:12px; color:#1e3a8a; line-height:1.5; margin-bottom:14px; }
+  .rec { border:1px solid var(--line); border-left:4px solid var(--accent); border-radius:8px; padding:14px 16px; margin-bottom:12px; background:#fff; }
+  .rec h3 { margin:0 0 6px; font-size:14px; }
+  .rec .why { font-size:13px; color:var(--ink); margin:8px 0 0; line-height:1.55; }
+  .rec .why b { color:var(--accent); }
+  .rec .evidence { font-size:12px; color:var(--muted); margin-top:8px; }
+  .rec .evidence table { margin-top:6px; }
+  .rec .action { font-size:13px; margin-top:10px; padding:8px 10px; background:#fef2f2; border:1px solid #fecaca; border-radius:6px; color:#7f1d1d; }
+  .rec .action b { color:#7f1d1d; }
+  .tag { display:inline-block; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#fff; background:var(--accent); border-radius:4px; padding:2px 7px; margin-bottom:6px; }
+  .empty { padding:16px; color:var(--muted); font-size:13px; }
+
+  /* State Preparedness Priorities - visually distinct hero section */
+  .priorities {
+    background: linear-gradient(135deg, #7f1d1d 0%, #9a3412 100%);
+    border-radius: 12px;
+    padding: 16px 18px;
+    margin-bottom: 14px;
+    color: #fff;
+    box-shadow: 0 6px 20px rgba(127,29,29,.25);
+  }
+  .priorities-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px; }
+  .priorities h2 { margin:0; font-size:18px; color:#fff; }
+  .priorities .sub.light { color:#fde8e8; margin:4px 0 0; font-size:12.5px; max-width:720px; }
+  .pill { background:rgba(255,255,255,.15); border:1px solid rgba(255,255,255,.35); color:#fff; font-size:11px; font-weight:600; padding:5px 12px; border-radius:999px; white-space:nowrap; }
+  .priority-cards { display:grid; grid-template-columns:repeat(3, 1fr); gap:14px; }
+  @media (max-width: 900px) { .priority-cards { grid-template-columns:1fr; } }
+  .pcard { background:#fff; color:var(--ink); border-radius:10px; padding:14px; display:flex; flex-direction:column; gap:8px; }
+  .pcard .pc-rank { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:var(--accent); color:#fff; font-weight:700; font-size:13px; }
+  .pcard .pc-head { display:flex; align-items:center; gap:10px; }
+  .pcard .pc-name { font-size:16px; font-weight:700; }
+  .pcard .pc-region { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .pc-stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .pc-stat { background:var(--chip); border-radius:8px; padding:8px 10px; }
+  .pc-stat .n { font-size:18px; font-weight:700; color:var(--accent); }
+  .pc-stat .k { font-size:11px; color:var(--muted); }
+  .pc-row { font-size:12.5px; line-height:1.5; }
+  .pc-row b { color:var(--ink); }
+  .pc-rec { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:10px 12px; font-size:12.5px; color:#7f1d1d; line-height:1.5; margin-top:auto; }
+  .pc-rec .lbl { display:block; font-weight:700; margin-bottom:3px; }
+  .pc-ev { font-size:11px; color:var(--muted); margin-top:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Washington State Wildfire Preparedness Dashboard</h1>
+  <p>Historical DNR fire statistics for statewide emergency management &amp; wildfire-season planning. Historical patterns only &mdash; not a future-risk prediction.</p>
+</header>
+
+<div class="wrap">
+  <div id="app" class="loading">Loading real DNR fire data&hellip;</div>
+</div>
+
+<script>
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+let DATA = null;
+let map, clusterLayer;
+let causeChart, yearChart, monthChart;
+let trendMetric = "incidents"; // or "acres"
+
+function fmt(n) { return n.toLocaleString("en-US"); }
+function fmtAcres(n) { return Math.round(n).toLocaleString("en-US"); }
+
+async function boot() {
+  const res = await fetch("data/dashboard_data.json");
+  if (!res.ok) { document.getElementById("app").textContent = "Could not load data/dashboard_data.json. Run: python3 build_data.py"; return; }
+  DATA = await res.json();
+  renderShell();
+  initMap();
+  wireFilters();
+  update();
+}
+
+function opt(v) { return `<option value="${v}">${v}</option>`; }
+
+function renderShell() {
+  const f = DATA.filters;
+  const app = document.getElementById("app");
+  app.className = "";
+  app.innerHTML = `
+    <div class="filters">
+      <div><label>County</label><select id="fCounty"><option value="">All counties</option>${f.counties.map(opt).join("")}</select></div>
+      <div><label>Region</label><select id="fRegion"><option value="">All regions</option>${f.regions.map(opt).join("")}</select></div>
+      <div><label>Year</label><select id="fYear"><option value="">All years</option>${f.years.slice().reverse().map(opt).join("")}</select></div>
+      <div><label>Fire cause</label><select id="fCause"><option value="">All causes</option>${f.causes.map(opt).join("")}</select></div>
+      <div class="reset"><button id="fReset">Reset filters</button></div>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <section class="priorities" id="priorities">
+      <div class="priorities-head">
+        <div>
+          <h2>State Preparedness Priorities</h2>
+          <p class="sub light">Top 3 counties that merit further preparedness assessment, based on historical DNR fire records for the current filter selection.</p>
+        </div>
+        <span class="pill">Historical-data-informed &middot; not a prediction</span>
+      </div>
+      <div class="priority-cards" id="priorityCards"></div>
+    </section>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Statewide fire locations <span class="badge" id="mapCount"></span></h2>
+        <p class="sub">Each point is a recorded (non-false-alarm) fire, clustered for readability. Zoom in to separate incidents.</p>
+        <div id="map"></div>
+      </div>
+
+      <div class="card">
+        <h2>Fire causes</h2>
+        <p class="sub">Count of incidents by general cause (blanks shown as Unknown).</p>
+        <div class="chart-box tall"><canvas id="causeChart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Historical trends</h2>
+        <p class="sub">Fire activity over time for the current filter selection.</p>
+        <div class="seg">
+          <button data-metric="incidents" class="active">Incidents</button>
+          <button data-metric="acres">Acres burned</button>
+        </div>
+        <div class="chart-box"><canvas id="yearChart"></canvas></div>
+        <div class="chart-box" style="margin-top:10px"><canvas id="monthChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <h2>Preparedness planning &mdash; highest historical activity</h2>
+        <p class="sub">Counties ranked by historical wildfire activity for the current selection, to prioritize areas for further assessment and resource pre-positioning.</p>
+        <div class="insight" id="insight"></div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>County</th><th>Region</th>
+                <th class="num">Incidents</th><th class="num">Acres</th>
+                <th class="num">Avg/fire</th><th>Top cause</th>
+              </tr>
+            </thead>
+            <tbody id="prepBody"></tbody>
+          </table>
+        </div>
+        <details>
+          <summary>Data sources, rules &amp; limitations</summary>
+          <div class="note" id="limits"></div>
+        </details>
+      </div>
+    </div>
+  `;
+}
+
+function initMap() {
+  map = L.map("map", { scrollWheelZoom: false }).setView([47.4, -120.5], 6);
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 18, attribution: "&copy; OpenStreetMap contributors"
+  }).addTo(map);
+  clusterLayer = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 50 });
+  map.addLayer(clusterLayer);
+}
+
+function wireFilters() {
+  ["fCounty","fRegion","fYear","fCause"].forEach(id =>
+    document.getElementById(id).addEventListener("change", update));
+  document.getElementById("fReset").addEventListener("click", () => {
+    ["fCounty","fRegion","fYear","fCause"].forEach(id => document.getElementById(id).value = "");
+    update();
+  });
+  document.querySelectorAll(".seg button").forEach(b =>
+    b.addEventListener("click", () => {
+      document.querySelectorAll(".seg button").forEach(x => x.classList.remove("active"));
+      b.classList.add("active");
+      trendMetric = b.dataset.metric;
+      renderTrends(currentFiltered());
+    }));
+}
+
+function currentFilters() {
+  return {
+    county: document.getElementById("fCounty").value,
+    region: document.getElementById("fRegion").value,
+    year: document.getElementById("fYear").value,
+    cause: document.getElementById("fCause").value,
+  };
+}
+
+function currentFiltered() {
+  const f = currentFilters();
+  return DATA.records.filter(r =>
+    (!f.county || r.c === f.county) &&
+    (!f.region || r.r === f.region) &&
+    (!f.year   || String(r.y) === f.year) &&
+    (!f.cause  || r.u === f.cause));
+}
+
+function update() {
+  const rows = currentFiltered();
+  renderKpis(rows);
+  renderMap(rows);
+  renderCauses(rows);
+  renderTrends(rows);
+  renderPrep(rows);
+  renderPriorities(rows);
+  renderLimits();
+}
+
+function renderKpis(rows) {
+  const incidents = rows.length;
+  const acres = rows.reduce((s, r) => s + r.a, 0);
+  const counties = new Set(rows.map(r => r.c)).size;
+  const largest = rows.reduce((m, r) => Math.max(m, r.a), 0);
+  const unknown = rows.filter(r => r.u === "Unknown").length;
+  const el = document.getElementById("kpis");
+  el.innerHTML = `
+    ${kpi(fmt(incidents), "Fire incidents (false alarms excluded)")}
+    ${kpi(fmtAcres(acres), "Total acres burned")}
+    ${kpi(fmt(counties), "Counties with activity")}
+    ${kpi(fmtAcres(largest), "Largest single fire (acres)")}
+    ${kpi(fmt(unknown), "Incidents with Unknown cause")}
+  `;
+}
+function kpi(v, l) { return `<div class="kpi"><div class="v">${v}</div><div class="l">${l}</div></div>`; }
+
+function renderMap(rows) {
+  clusterLayer.clearLayers();
+  const markers = [];
+  for (const r of rows) {
+    if (r.lat == null || r.lon == null) continue;
+    const m = L.circleMarker([r.lat, r.lon], {
+      radius: 4, color: "#b91c1c", weight: 1, fillColor: "#ef4444", fillOpacity: .6
+    });
+    m.bindPopup(
+      `<b>${r.c} County</b> &mdash; ${r.r}<br>` +
+      `Cause: ${r.u}<br>` +
+      `Acres: ${fmtAcres(r.a)}<br>` +
+      `Year: ${r.y ?? "n/a"}`
+    );
+    markers.push(m);
+  }
+  clusterLayer.addLayers(markers);
+  document.getElementById("mapCount").textContent = fmt(markers.length) + " located fires";
+}
+
+function aggCount(rows, key) {
+  const m = new Map();
+  for (const r of rows) m.set(r[key], (m.get(r[key]) || 0) + 1);
+  return [...m.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function renderCauses(rows) {
+  const data = aggCount(rows, "u");
+  const labels = data.map(d => d[0]);
+  const vals = data.map(d => d[1]);
+  if (causeChart) causeChart.destroy();
+  causeChart = new Chart(document.getElementById("causeChart"), {
+    type: "bar",
+    data: { labels, datasets: [{ label: "Incidents", data: vals, backgroundColor: "#ea580c" }] },
+    options: {
+      indexAxis: "y",
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true } },
+      maintainAspectRatio: false,
+    }
+  });
+}
+
+function renderTrends(rows) {
+  const years = DATA.filters.years;
+  const byYear = new Map(years.map(y => [y, { incidents: 0, acres: 0 }]));
+  const byMonth = Array.from({ length: 12 }, () => ({ incidents: 0, acres: 0 }));
+  for (const r of rows) {
+    if (r.y != null && byYear.has(r.y)) { const o = byYear.get(r.y); o.incidents++; o.acres += r.a; }
+    if (r.m != null) { const o = byMonth[r.m - 1]; o.incidents++; o.acres += r.a; }
+  }
+  const metricLabel = trendMetric === "incidents" ? "Incidents" : "Acres burned";
+  const yVals = years.map(y => trendMetric === "incidents" ? byYear.get(y).incidents : Math.round(byYear.get(y).acres));
+  const mVals = byMonth.map(o => trendMetric === "incidents" ? o.incidents : Math.round(o.acres));
+
+  if (yearChart) yearChart.destroy();
+  yearChart = new Chart(document.getElementById("yearChart"), {
+    type: "line",
+    data: { labels: years, datasets: [{ label: metricLabel + " by year", data: yVals, borderColor: "#b91c1c", backgroundColor: "rgba(185,28,28,.15)", fill: true, tension: .25 }] },
+    options: { plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true } }, maintainAspectRatio: false }
+  });
+
+  if (monthChart) monthChart.destroy();
+  monthChart = new Chart(document.getElementById("monthChart"), {
+    type: "bar",
+    data: { labels: MONTHS, datasets: [{ label: metricLabel + " by month", data: mVals, backgroundColor: "#ea580c" }] },
+    options: { plugins: { legend: { display: true } }, scales: { y: { beginAtZero: true } }, maintainAspectRatio: false }
+  });
+}
+
+function renderPrep(rows) {
+  // Aggregate by county.
+  const m = new Map();
+  for (const r of rows) {
+    if (!m.has(r.c)) m.set(r.c, { county: r.c, region: r.r, incidents: 0, acres: 0, causes: new Map() });
+    const o = m.get(r.c);
+    o.incidents++; o.acres += r.a;
+    o.causes.set(r.u, (o.causes.get(r.u) || 0) + 1);
+  }
+  const list = [...m.values()].map(o => {
+    let top = "n/a", best = -1;
+    for (const [k, v] of o.causes) if (v > best) { best = v; top = k; }
+    return { ...o, avg: o.incidents ? o.acres / o.incidents : 0, topCause: top };
+  }).sort((a, b) => b.acres - a.acres);
+
+  const body = document.getElementById("prepBody");
+  body.innerHTML = list.slice(0, 10).map((o, i) => `
+    <tr class="${i < 3 ? "top" : ""}">
+      <td class="rank">${i + 1}</td>
+      <td>${o.county}</td>
+      <td>${o.region}</td>
+      <td class="num">${fmt(o.incidents)}</td>
+      <td class="num">${fmtAcres(o.acres)}</td>
+      <td class="num">${o.avg.toFixed(1)}</td>
+      <td>${o.topCause}</td>
+    </tr>`).join("");
+
+  const insight = document.getElementById("insight");
+  if (list.length) {
+    const t = list[0];
+    const top3 = list.slice(0, 3).map(o => o.county).join(", ");
+    const totalAcres = list.reduce((s, o) => s + o.acres, 0);
+    const share = totalAcres ? Math.round(100 * list.slice(0,3).reduce((s,o)=>s+o.acres,0) / totalAcres) : 0;
+    insight.innerHTML =
+      `<b>Actionable insight:</b> For the current selection, the top 3 counties by acres burned (${top3}) account for ` +
+      `about <b>${share}%</b> of total burned acreage. ${t.county} leads with ${fmtAcres(t.acres)} acres across ` +
+      `${fmt(t.incidents)} fires (top cause: ${t.topCause}). Prioritize these areas for seasonal pre-positioning and mitigation assessment.`;
+  } else {
+    insight.textContent = "No records match the current filters.";
+  }
+}
+
+function pct(part, whole) { return whole ? Math.round(100 * part / whole) : 0; }
+
+// Pick a concrete, cause-specific preparedness action (from a fixed mapping,
+// not generated) so the recommendation ties directly to the evidence shown.
+function actionForCause(cause) {
+  const map = {
+    "Debris Burn": "enforce and publicize debris-burn permit rules and seasonal burn bans",
+    "Natural": "pre-position crews and detection resources ahead of lightning-prone periods",
+    "Celebration": "expand fireworks restrictions and public messaging around holidays",
+    "Fireworks": "expand fireworks restrictions and public messaging around holidays",
+    "Equip/Vehicle": "coordinate with utilities and road crews on equipment spark mitigation",
+    "Power Gen": "coordinate with utilities on power-line and equipment mitigation",
+    "Arson": "coordinate with law enforcement on patrols and rapid-response in hotspots",
+    "Smoking": "target public-awareness campaigns in high-use recreation areas",
+    "Railroad": "coordinate with rail operators on right-of-way vegetation management",
+    "Miscellaneous": "review local ignition sources and tailor outreach accordingly",
+    "Undetermine": "invest in cause investigation to make future prevention more precise",
+    "Unknown": "improve field cause reporting to make future prevention more precise",
+  };
+  return map[cause] || "tailor local prevention programs to this leading cause";
+}
+
+function renderPriorities(rows) {
+  const host = document.getElementById("priorityCards");
+  const f = currentFilters();
+
+  if (!rows.length) {
+    host.innerHTML = `<div class="pcard"><div class="pc-row">No historical records match the current filters, so no priority counties can be identified. Adjust the filters above.</div></div>`;
+    return;
+  }
+
+  const totalAcres = rows.reduce((s, r) => s + r.a, 0);
+
+  // Aggregate per county from the filtered real records.
+  const county = new Map();
+  for (const r of rows) {
+    if (!county.has(r.c))
+      county.set(r.c, { name: r.c, region: r.r, incidents: 0, acres: 0,
+                        causes: new Map(), months: new Map() });
+    const o = county.get(r.c);
+    o.incidents++; o.acres += r.a;
+    o.causes.set(r.u, (o.causes.get(r.u) || 0) + 1);
+    if (r.m != null) o.months.set(r.m, (o.months.get(r.m) || 0) + 1);
+  }
+
+  const ranked = [...county.values()].sort((a, b) => b.acres - a.acres).slice(0, 3);
+
+  host.innerHTML = ranked.map((o, i) => {
+    const causeSorted = [...o.causes.entries()].sort((a, b) => b[1] - a[1]);
+    const topCauses = causeSorted.slice(0, 2);
+    const leadCause = causeSorted[0] ? causeSorted[0][0] : "Unknown";
+
+    const monthSorted = [...o.months.entries()].sort((a, b) => b[1] - a[1]);
+    const dated = [...o.months.values()].reduce((s, v) => s + v, 0);
+    const peakMonths = monthSorted.slice(0, 2).map(([m]) => MONTHS[m - 1]);
+
+    const causesText = topCauses.length
+      ? topCauses.map(([k, v]) => `${k} (${pct(v, o.incidents)}%)`).join(", ")
+      : "not recorded";
+    const peakText = peakMonths.length ? peakMonths.join(" & ") : "not recorded";
+    const shareOfSel = pct(o.acres, totalAcres);
+
+    const recommendation =
+      `Prioritize ${o.name} for further preparedness assessment: ${actionForCause(leadCause)}, ` +
+      `and concentrate readiness around ${peakText}.`;
+
+    return `
+      <div class="pcard">
+        <div class="pc-head">
+          <span class="pc-rank">${i + 1}</span>
+          <div>
+            <div class="pc-name">${o.name} County</div>
+            <div class="pc-region">${o.region}</div>
+          </div>
+        </div>
+
+        <div class="pc-stats">
+          <div class="pc-stat"><div class="n">${fmt(o.incidents)}</div><div class="k">Historical incidents</div></div>
+          <div class="pc-stat"><div class="n">${fmtAcres(o.acres)}</div><div class="k">Acres burned</div></div>
+        </div>
+
+        <div class="pc-row"><b>Main causes:</b> ${causesText}</div>
+        <div class="pc-row"><b>Peak months:</b> ${peakText}</div>
+
+        <div class="pc-rec">
+          <span class="lbl">Preparedness recommendation</span>
+          ${recommendation}
+          <div class="pc-ev">Evidence: ${shareOfSel}% of burned acreage in the current selection;
+            leading cause ${leadCause}; ${fmt(dated)} dated fires used for peak-month analysis.</div>
+        </div>
+      </div>`;
+  }).join("");
+}
+
+function renderLimits() {
+  const m = DATA.meta;
+  document.getElementById("limits").innerHTML = `
+    <p>Source file: <code>${m.source_file}</code>. Rows in CSV: ${fmt(m.total_rows_in_csv)}.
+    False alarms excluded (${m.false_alarm_classes.join(", ")}): ${fmt(m.false_alarms_excluded)}.
+    Records used: ${fmt(m.records_used)}. Total acres (all history): ${fmtAcres(m.total_acres_burned)}.</p>
+    <ul>${m.limitations.map(x => `<li>${x}</li>`).join("")}</ul>
+  `;
+}
+
+boot();
+</script>
+</body>
+</html>
